@@ -1,6 +1,20 @@
-# Smoke test run on every push: one event, only generic Geant4 commands.
-# Add your application's commands as needed, keeping it fast.
-/control/verbose 2
-/run/verbose 2
+#
+# Macro file for "TestEm3DEDX" (one-event smoke test, run on every push)
+#
+/control/verbose 0
+/run/verbose 0
+#
+/testem/det/setNbOfLayers 1
+/testem/det/setNbOfAbsor 1
+/testem/det/setAbsor 1 G4_WATER 0.15 cm
+/testem/det/setSizeYZ 10 cm
+#
+/testem/phys/addPhysics emstandard_opt0
 /run/initialize
+/run/setCut 1 km
+#
+/gun/particle e-
+/gun/energy 10 MeV
+#
+/run/printProgress 1
 /run/beamOn 1

@@ -1,0 +1,37 @@
+#
+# Macro file for "TestEm3DEDX" (dE/dX with real tracking: e- in G4_WATER, emstandard_opt0)
+#
+/control/verbose 0
+/run/verbose 0
+#
+/testem/det/setNbOfLayers 1
+/testem/det/setNbOfAbsor 1
+/testem/det/setAbsor 1 G4_WATER 0.15 cm
+/testem/det/setSizeYZ 10 cm
+#
+/testem/phys/addPhysics emstandard_opt0
+/run/initialize
+#
+# A 1 km production cut suppresses explicit delta-ray/bremsstrahlung
+# secondaries, folding their energy into the continuous energy loss deposited
+# in this step: without it, escaping secondaries make the thin-slab Edep/
+# thickness measurement increasingly underestimate the unrestricted ESTAR
+# stopping power as the beam energy grows (checked locally: ~4% low at 3 MeV,
+# ~34% low at 30 MeV). With the cut, both the tracked value and the ESTAR
+# reference below are the same unrestricted quantity.
+/run/setCut 1 km
+#
+/gun/particle e-
+#
+/gun/energy 3 MeV
+/run/printProgress 5000
+/run/beamOn 20000
+#
+/gun/energy 10 MeV
+/run/printProgress 5000
+/run/beamOn 20000
+#
+/gun/energy 30 MeV
+/run/printProgress 5000
+/run/beamOn 20000
+#

@@ -1,153 +1,76 @@
-# G4Med Test Template
+# TestEm3DEDX
 
-This is the **Template Repository** for creating new Geant4 validation tests within the `G4Med-test`.
+**Electron dE/dX validated by actually tracking particles** through a thin
+absorber (multiple scattering and energy-loss fluctuations left on), as a
+cross-check of [`TestDEDX2`](https://github.com/G4Med-test/TestDEDX2), which
+computes the same quantity analytically with `G4EmCalculator` and never
+transports a single particle. Built on the `TestEm3` sampling-calorimeter
+example.
 
-It comes pre-configured with:
-* **Automatic CI/CD:** GitHub Actions to build and test your code.
-* **Apptainer Integration:** Automatically builds a `.sif` container and pushes it to the GitHub Container Registry (GHCR).
-* **Dynamic CMake:** Automatically adapts the project and executable name based on the repository name.
-* **Validation export:** Runs the validation macros on the Padova runners and exports
-  [Geant Validation Portal](https://github.com/G4Med-test/ci-workflows) JSON.
+[![CI Pipeline](https://github.com/G4Med-test/TestEm3DEDX/actions/workflows/ci.yml/badge.svg)](https://github.com/G4Med-test/TestEm3DEDX/actions/workflows/ci.yml)
 
 ---
 
-## 🚀 Quick Start: How to Create a New Test
+## 🔬 What this test does
 
-### 1. Create the Repository
-1.  Click the **[Use this template](https://github.com/G4Med-test/template/generate)** button at the top of this page.
-2.  Select **Create a new repository**.
-3.  **Owner:** Select `G4Med-test`.
-4.  **Repository Name:** Choose a name (e.g., `HadronTest`, `ElectronScattering`).
-    * *Note:* The name you choose here will automatically become the name of your executable and your container (e.g., `HadronTest.sif`).
-5.  Click **Create repository**.
+A mono-energetic e- beam hits a single thin G4_WATER absorber (one layer, one
+material), with multiple scattering and Landau/Vavilov energy-loss
+fluctuations left **on** (unlike `TestEm3`'s own `dedx.mac`, which turns both
+off to get a clean, deterministic value from the tracking-verbose output): a
+genuine test of the real stepping/tracking machinery, not just the physics
+tables it queries. `Run::EndOfRun` prints the mean energy deposited per event
+and its RMS for that absorber; dividing the mean by the absorber's areal
+density (thickness × density) gives a mass stopping power directly
+comparable to `TestDEDX2` and NIST ESTAR (MeV cm2/g).
 
-### 2. Fill in the repository
+The production cut is set to a 1 km range (`/run/setCut 1 km`), suppressing
+explicit delta-ray and bremsstrahlung secondaries so their energy is folded
+into the continuous loss deposited in-step. Without it, this was checked
+locally to read low by an amount that **grows with beam energy** — escaping
+secondaries carry an increasing share of the energy out of the thin slab:
+about 4% at 3 MeV, 17% at 10 MeV, 34% at 30 MeV. With the cut, the tracked
+value agrees with the NIST reference to 2.3%, 0.15% and 0.27% respectively.
+That reference is NIST ESTAR data for water, computed in C++ with the same
+`G4ESTARStopping` class `TestDEDX2` uses (never a value typed from memory)
+and printed by the application itself alongside the tracked measurement.
 
-| Path | What to do |
+## 🛠️ Fill in the repository (from the template)
+
+| Path | What it contains |
 | --- | --- |
-| `main.cc`, `src/`, `include/` | Your Geant4 application. |
-| `macro/unit.mac` | One-event smoke test, run on every push (this name is fixed). |
-| `macro/*.mac` | Your validation macros, **with any name**. `example.mac` is only an example. |
-| `validation/config.json` | Which of your macros are validation runs, e.g. `{"macros": ["proton_100MeV.mac", "carbon/c12_400MeV.mac"]}` (paths relative to `macro/`). |
-| `validation/parser.py` | Reads the results of one run and turns them into portal plots: replace the `TODO`s. |
+| `main.cc`, `src/`, `include/` | The Geant4 application, imported from `geant-validation-tests/src/TestEm3`. Two changes from the original: `HistoManager.hh` included the removed `g4root.hh` header (fixed to `G4AnalysisManager.hh`, caught by actually compiling against Geant4 11.3.2); `Run::EndOfRun` gained the NIST ESTAR reference printout described below. |
+| `macro/unit.mac` | One-event smoke test (water, `emstandard_opt0`). |
+| `macro/e-_G4_WATER_emstandard_opt0.mac` | Scans 3/10/30 MeV through a 0.15 cm water slab. |
+| `validation/config.json` | Lists that one macro. |
+| `validation/parser.py` | Reads the `sumX`/`sumX2` and `ESTAR_DEDX` lines `Run::EndOfRun` prints to stdout and exports both dE/dX curves (tracked and NIST reference) vs. beam energy. |
 
-Don't forget to update this `README.md`.
+See [`validation/README.md`](validation/README.md) for exactly how the parser
+reads the output and the production-cut rationale above.
 
-`Apptainer.def` builds on `ghcr.io/g4med-test/geant4-alma9:<Geant4 tag>` (Geant4,
-compilers, Python with NumPy/uproot, datasets mounted at `/g4data`) and normally
-needs no changes.
-
-### 3. How validation runs
-
-You write the macros; nothing is generated from templates. `config.json` only says
-which macros to run, and `parser.py` only *reads*: it never creates or modifies
-macros or input files. For **each** macro listed in `config.json` the pipeline
-starts a separate job that:
-
-1. **reads the macro** and calls `metadata(commands)` in your parser, where
-   `commands` is the macro as `[(command, value), ...]`. You return a dict
-   describing the run, e.g. physics list, particle, energy, event count, names of
-   the output files (`TEST` is required). This is the only place where settings
-   are found: they are not repeated in `config.json`;
-2. **runs the macro unchanged** in the container, inside an empty directory that is
-   also the working directory. Files written with relative names (or under
-   `/outputs/`) end up there, and stdout is saved as `test_stdout.txt`;
-3. **calls `parse(job)`** in your parser. `job` is the dict from step 1 plus `path`
-   (that directory) and `VERSION` (the Geant4 version of the image). You read your
-   result files from `path` and yield one record per plot with `getJSON`;
-4. checks the records (array lengths, no NaN/Infinity) and uploads them; a final
-   job merges all macros into the `validation-json` artifact.
-
-```text
-config.json ─► proton_100MeV.mac ─┬─ metadata(commands) ─► job ─────────────────┐
-                                  └─ Geant4 run ─► result.txt, test_stdout.txt ─┴─ parse(job) ─► plots JSON
-```
-
-Because the macro runs as written, it must be self-contained (no
-`/control/execute`, loops or aliases). The helpers `getJSON`, `one_command`,
-`single_run` and `energy_mev` come from
-[`ci-workflows/validation/geantval.py`](https://github.com/G4Med-test/ci-workflows/blob/main/validation/geantval.py).
-
-### 4. Geant4 versions and integration
-
-Pushes build with the Geant4 version set by `TAG` in `Apptainer.def`. To run the
-whole pipeline with another published version of
-[`geant4-alma9`](https://github.com/G4Med-test/geant4-alma9), use *Actions → CI
-Pipeline → Run workflow* with `geant4_tag`, or:
+## 🚀 How to run the container
 
 ```bash
-gh workflow run ci.yml -R G4Med-test/MyTest -f geant4_tag=v11.4.3
+apptainer build --build-arg PROJECT_NAME=TestEm3DEDX TestEm3DEDX.sif Apptainer.def
+apptainer run TestEm3DEDX.sif macro/e-_G4_WATER_emstandard_opt0.mac
 ```
 
-When the test is ready, add it to
-[`ci-workflows/tests.json`](https://github.com/G4Med-test/ci-workflows/blob/main/tests.json)
-with a pull request: ci-workflows then checks it on every change, and it is run
-automatically with every new Geant4 version.
+No Geant4 datasets are needed for this test, but the shared container still
+mounts `/g4data` as usual.
 
-### 5. Run everything locally
+See the top-level [template README](https://github.com/G4Med-test/template#readme)
+for the full local workflow (pulling the CI-built container and running
+`ci-workflows/validation/export.py`).
 
-You can test and run everything locally. To do so, You need [Apptainer](https://apptainer.org/docs/user/latest/quick_start.html)
-≥ 1.5  and Python ≥ 3.9.
-Work in a directory containing your repository and a checkout of `ci-workflows`; the commands below use
-`MyTest` as the repository name:
+## 📦 Container on GHCR
+
+[![Container on GHCR](https://img.shields.io/badge/Container-GHCR-blue?logo=github)](https://github.com/orgs/G4Med-test/packages?repo_name=TestEm3DEDX)
 
 ```bash
-git clone https://github.com/G4Med-test/MyTest.git
-git clone https://github.com/G4Med-test/ci-workflows.git
+apptainer pull oras://ghcr.io/g4med-test/testem3dedx:<tag>
 ```
+> Replace `<tag>` with the desired release tag or commit hash.
 
-**Get the container**, in one of two ways:
+## ✅ GitHub Actions workflow
 
-- download the image built by the CI. It is tagged with the full commit SHA (plus
-  `-<geant4 tag>` for runs with a different Geant4 version, see below) and the
-  package name is the lowercase repository name. 
-
-  ```bash
-  apptainer pull MyTest.sif oras://ghcr.io/g4med-test/mytest:<commit-sha>
-  ```
-
-- or build it from your working copy. `PROJECT_NAME` must be the repository name
-  (it names the executable); `TAG` selects the Geant4 version of the base image.
-  Depending on your installation you may need `--fakeroot` or `sudo`:
-
-  ```bash
-  apptainer build --build-arg PROJECT_NAME=MyTest --build-arg TAG=v11.3.2 \
-    MyTest.sif MyTest/Apptainer.def
-  ```
-
-**Geant4 datasets** are not in the image and are mounted at `/g4data`. Use CVMFS if
-available, otherwise download them once (about 2 GB) with the image itself:
-
-```bash
-G4DATA=/cvmfs/geant4.cern.ch/share/data          # or:
-G4DATA=$PWD/g4data; mkdir -p "$G4DATA"
-apptainer exec -B "$G4DATA:/g4data" MyTest.sif geant4-config --install-datasets
-```
-
-**Run the simulation.** The unit macro, as on every push:
-
-```bash
-apptainer run -B "$G4DATA:/g4data:ro" MyTest.sif MyTest/macro/unit.mac
-```
-
-A validation macro, exactly as the CI does: in a new, empty directory bound at
-`/outputs` and used as working directory, with stdout saved for the parser:
-
-```bash
-mkdir run-dir
-apptainer run -B "$G4DATA:/g4data:ro" -B "$PWD/run-dir:/outputs" --pwd /outputs \
-  MyTest.sif "$PWD/MyTest/macro/example.mac" > run-dir/test_stdout.txt
-```
-
-**Check and export.** `matrix` checks `config.json` and runs `metadata()` on every
-listed macro, without simulating; it needs only Python. `export` runs `parse()` on
-the outputs of one macro inside the image (for uproot) and writes the portal JSON to
-`--output`, which must not exist yet: `results.json`, one `plots/<md5>.json` per plot
-and `job.json` with what the parser received. The Geant4 version is read from the
-image with `geant4-config --version`:
-
-```bash
-python3 ci-workflows/validation/export.py matrix --repo MyTest
-apptainer exec MyTest.sif python3 ci-workflows/validation/export.py export \
-  --repo MyTest --macro example.mac --input run-dir --output json
-```
+Defined in the shared [`ci-workflows`](https://github.com/G4Med-test/ci-workflows)
+repository and invoked from [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
