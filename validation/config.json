@@ -1,3 +1,5 @@
 {
-  "macros": ["example.mac"]
+  "macros": [
+    "e-_G4_WATER_emstandard_opt0.mac"
+  ]
 }
